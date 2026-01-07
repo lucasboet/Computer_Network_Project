@@ -34,6 +34,7 @@ def send_help(sock):
         "\n[AVAILABLE COMMANDS]\n"
         "/users                - Show connected users\n"
         "/whoami               - Show your status\n"
+        "/calc                 - to calculate a number by using: +, -, /, *\n"
         "/ping                 - Measure RTT\n"
         "/uptime               - Server uptime\n"
         "/rename <new_name>    - Change username\n"
@@ -208,22 +209,50 @@ def handle_client(sock):
                 broadcast(f" {old} changed username to {new_name}.\n")
                 continue
 
-            # ---- PRIVATE MESSAGE (FIXED) ----
+            # ---- PRIVATE MESSAGE (ROBUST, SUPPORTS QUOTES) ----
             if msg.startswith("@"):
-                clean = msg.strip()
+                msg = msg.strip()
+                target = None
+                text = None
 
-                if " " not in clean:
-                    safe_send(sock, "[ERROR] Usage: @username message\n")
-                    continue
+                # Case 1: @"username with spaces" message
+                if msg.startswith('@"'):
+                    try:
+                        end_quote = msg.find('"', 2)
+                        if end_quote == -1:
+                            raise ValueError
 
-                target = clean[1:clean.index(" ")].strip()
-                text = clean[clean.index(" ") + 1:].strip()
+                        target = msg[2:end_quote].strip()
+                        text = msg[end_quote + 1:].strip()
+
+                        if not target or not text:
+                            raise ValueError
+
+                    except ValueError:
+                        safe_send(
+                            sock,
+                            '[ERROR] Usage: @"username with spaces" message\n'
+                        )
+                        continue
+
+                # Case 2: @username message
+                else:
+                    parts = msg.split(maxsplit=1)
+                    if len(parts) != 2:
+                        safe_send(sock, "[ERROR] Usage: @username message\n")
+                        continue
+
+                    target = parts[0][1:].strip()
+                    text = parts[1].strip()
 
                 with lock:
                     target_sock = clients.get(target)
 
                 if target_sock is None:
-                    safe_send(sock, f"[ERROR] User '{target}' not found.\n")
+                    safe_send(
+                        sock,
+                        f"[ERROR] User '{target}' not found.\n"
+                    )
                     continue
 
                 safe_send(
@@ -273,6 +302,47 @@ def handle_client(sock):
                 target = parts[1]
                 muted_users.pop(target, None)
                 broadcast(f" {target} was unmuted.\n")
+                continue
+
+            # ---- CALCULATOR (PRIVATE) ----
+            if msg.startswith("/calc"):
+                parts = msg.split()
+
+                if len(parts) != 4:
+                    safe_send(
+                        sock,
+                        "[ERROR] Usage: /calc <number> <operator> <number>\n"
+                    )
+                    continue
+
+                try:
+                    a = float(parts[1])
+                    operator = parts[2]
+                    b = float(parts[3])
+
+                    if operator == "+":
+                        result = a + b
+                    elif operator == "-":
+                        result = a - b
+                    elif operator == "*":
+                        result = a * b
+                    elif operator == "/":
+                        if b == 0:
+                            safe_send(sock, "[ERROR] Division by zero\n")
+                            continue
+                        result = a / b
+                    else:
+                        safe_send(sock, "[ERROR] Invalid operator\n")
+                        continue
+
+                    safe_send(
+                        sock,
+                        f"[CALC] {a} {operator} {b} = {result}\n"
+                    )
+
+                except ValueError:
+                    safe_send(sock, "[ERROR] Invalid numbers\n")
+
                 continue
 
             # ---- BLOCK MUTED USER ----
