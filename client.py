@@ -7,11 +7,11 @@ PORT = 9090
 BUFFER = 1024
 
 running = True
-last_ping_time = None
+last_ping = None
 
 
 def listen(sock):
-    global running, last_ping_time
+    global running, last_ping
     try:
         while running:
             data = sock.recv(BUFFER)
@@ -22,10 +22,10 @@ def listen(sock):
 
             text = data.decode().strip()
 
-            if text == "Pong" and last_ping_time:
-                rtt = int((time.time() - last_ping_time) * 1000)
+            if text == "Pong" and last_ping:
+                rtt = int((time.time() - last_ping) * 1000)
                 print(f"\nPong! RTT = {rtt} ms")
-                last_ping_time = None
+                last_ping = None
             else:
                 print("\r" + text)
 
@@ -35,7 +35,7 @@ def listen(sock):
 
 
 def start_client():
-    global running, last_ping_time
+    global running, last_ping
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((HOST, PORT))
 
@@ -46,16 +46,13 @@ def start_client():
             msg = input("> ")
 
             if msg == "/ping":
-                last_ping_time = time.time()
+                last_ping = time.time()
 
             sock.sendall((msg + "\n").encode())
 
             if msg == "/quit":
                 running = False
                 break
-
-    except KeyboardInterrupt:
-        sock.sendall(b"/quit\n")
     finally:
         sock.close()
         print("Client closed.")

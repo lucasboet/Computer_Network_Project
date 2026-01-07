@@ -32,17 +32,18 @@ def send_help(sock):
     safe_send(
         sock,
         "\n[AVAILABLE COMMANDS]\n"
-        "/users                - Show connected users\n"
-        "/whoami               - Show your status\n"
-        "/calc                 - to calculate a number by using: +, -, /, *\n"
-        "/ping                 - Measure RTT\n"
-        "/uptime               - Server uptime\n"
-        "/rename <new_name>    - Change username\n"
-        "/mute <user> [sec]    - Admin only\n"
-        "/unmute <user>        - Admin only\n"
-        "@username message     - Private message\n"
-        "/admin                - Show admin\n"
-        "/quit                 - Disconnect\n\n"
+        "/users                     - Show connected users\n"
+        "/whoami                    - Show your status\n"
+        "/admin                     - Show admin\n"
+        "/ping                      - Measure RTT\n"
+        "/uptime                    - Server uptime\n"
+        "/rename <new name>         - Change username\n"
+        "/mute <user> [seconds]     - Admin only\n"
+        "/unmute <user>             - Admin only\n"
+        "@user message              - Private message\n"
+        "@\"user with spaces\" msg   - Private message\n"
+        "/calc a + b                - Private calculator\n"
+        "/quit                      - Disconnect\n\n"
     )
 
 
@@ -65,9 +66,7 @@ def promote_new_admin():
             clients[admin_username],
             f"[{now()}] You are now the administrator.\n"
         )
-        broadcast(
-            f"[{now()}] {admin_username} is now the administrator.\n"
-        )
+        broadcast(f"[{now()}] {admin_username} is now the administrator.\n")
     else:
         admin_username = None
 
@@ -112,11 +111,14 @@ def handle_client(sock):
     username = None
 
     try:
-        # ---- USERNAME REGISTRATION ----
+        # ---- USER REGISTRATION ----
         while True:
             safe_send(sock, "Enter username: ")
-            username = sock.recv(BUFFER).decode().strip()
+            data = sock.recv(BUFFER)
+            if not data:
+                return
 
+            username = data.decode().strip()
             if not username:
                 continue
 
@@ -146,6 +148,7 @@ def handle_client(sock):
             msg = data.decode().strip()
 
             if msg == "/quit":
+                safe_send(sock, "[SERVER] You disconnected.\n")
                 break
 
             # ---- BASIC COMMANDS ----
@@ -161,11 +164,13 @@ def handle_client(sock):
 
             if msg == "/users":
                 with lock:
-                    users = "\n".join(
-                        f"- {u}" + (" (Admin)" if u == admin_username else "")
-                        for u in clients
-                    )
-                safe_send(sock, f"Connected users:\n{users}\n")
+                    users = list(clients.keys())
+                    admin = admin_username
+                text = "\n".join(
+                    f"- {u}" + (" (Admin)" if u == admin else "")
+                    for u in users
+                )
+                safe_send(sock, f"Connected users:\n{text}\n")
                 continue
 
             if msg == "/admin":
@@ -175,14 +180,17 @@ def handle_client(sock):
             if msg == "/whoami":
                 role = "Administrator" if username == admin_username else "Regular user"
                 muted = "Yes" if username in muted_users else "No"
-                safe_send(sock, f"You are: {username}\nRole: {role}\nMuted: {muted}\n")
+                safe_send(
+                    sock,
+                    f"You are: {username}\nRole: {role}\nMuted: {muted}\n"
+                )
                 continue
 
             # ---- RENAME ----
             if msg.startswith("/rename"):
                 parts = msg.split(maxsplit=1)
                 if len(parts) != 2:
-                    safe_send(sock, "[ERROR] Usage: /rename <new_name>\n")
+                    safe_send(sock, "[ERROR] Usage: /rename <new name>\n")
                     continue
 
                 new_name = parts[1].strip()
@@ -206,53 +214,35 @@ def handle_client(sock):
                     old = username
                     username = new_name
 
-                broadcast(f" {old} changed username to {new_name}.\n")
+                broadcast(f"[{now()}] {old} changed name to {new_name}.\n")
                 continue
 
-            # ---- PRIVATE MESSAGE (ROBUST, SUPPORTS QUOTES) ----
+            # ---- PRIVATE MESSAGE (SUPPORTS QUOTES) ----
             if msg.startswith("@"):
-                msg = msg.strip()
                 target = None
                 text = None
 
-                # Case 1: @"username with spaces" message
                 if msg.startswith('@"'):
                     try:
-                        end_quote = msg.find('"', 2)
-                        if end_quote == -1:
-                            raise ValueError
-
-                        target = msg[2:end_quote].strip()
-                        text = msg[end_quote + 1:].strip()
-
+                        end = msg.find('"', 2)
+                        target = msg[2:end]
+                        text = msg[end + 1:].strip()
                         if not target or not text:
                             raise ValueError
-
-                    except ValueError:
-                        safe_send(
-                            sock,
-                            '[ERROR] Usage: @"username with spaces" message\n'
-                        )
+                    except:
+                        safe_send(sock, '[ERROR] Usage: @"user name" message\n')
                         continue
-
-                # Case 2: @username message
                 else:
-                    parts = msg.split(maxsplit=1)
-                    if len(parts) != 2:
-                        safe_send(sock, "[ERROR] Usage: @username message\n")
+                    if " " not in msg:
+                        safe_send(sock, "[ERROR] Usage: @user message\n")
                         continue
-
-                    target = parts[0][1:].strip()
-                    text = parts[1].strip()
+                    target, text = msg[1:].split(" ", 1)
 
                 with lock:
                     target_sock = clients.get(target)
 
-                if target_sock is None:
-                    safe_send(
-                        sock,
-                        f"[ERROR] User '{target}' not found.\n"
-                    )
+                if not target_sock:
+                    safe_send(sock, f"[ERROR] User '{target}' not found.\n")
                     continue
 
                 safe_send(
@@ -261,72 +251,25 @@ def handle_client(sock):
                 )
                 continue
 
-            # ---- MUTE / UNMUTE ----
-            if msg.startswith("/mute"):
-                if username != admin_username:
-                    safe_send(sock, "[ERROR] Admin only.\n")
-                    continue
-
-                parts = msg.split()
-                if len(parts) not in (2, 3):
-                    safe_send(sock, "[ERROR] Usage: /mute <user> [seconds]\n")
-                    continue
-
-                target = parts[1]
-                if target == admin_username or target not in clients:
-                    continue
-
-                if len(parts) == 2:
-                    muted_users[target] = None
-                    broadcast(f" {target} was muted permanently.\n")
-                else:
-                    try:
-                        seconds = int(parts[2])
-                        muted_users[target] = time.time() + seconds
-                        broadcast(
-                            f" {target} was muted for {seconds} seconds.\n"
-                        )
-                    except:
-                        safe_send(sock, "[ERROR] Invalid time.\n")
-                continue
-
-            if msg.startswith("/unmute"):
-                if username != admin_username:
-                    safe_send(sock, "[ERROR] Admin only.\n")
-                    continue
-
-                parts = msg.split()
-                if len(parts) != 2:
-                    continue
-
-                target = parts[1]
-                muted_users.pop(target, None)
-                broadcast(f" {target} was unmuted.\n")
-                continue
-
             # ---- CALCULATOR (PRIVATE) ----
             if msg.startswith("/calc"):
                 parts = msg.split()
-
                 if len(parts) != 4:
-                    safe_send(
-                        sock,
-                        "[ERROR] Usage: /calc <number> <operator> <number>\n"
-                    )
+                    safe_send(sock, "[ERROR] Usage: /calc <a> <op> <b>\n")
                     continue
 
                 try:
                     a = float(parts[1])
-                    operator = parts[2]
+                    op = parts[2]
                     b = float(parts[3])
 
-                    if operator == "+":
+                    if op == "+":
                         result = a + b
-                    elif operator == "-":
+                    elif op == "-":
                         result = a - b
-                    elif operator == "*":
+                    elif op == "*":
                         result = a * b
-                    elif operator == "/":
+                    elif op == "/":
                         if b == 0:
                             safe_send(sock, "[ERROR] Division by zero\n")
                             continue
@@ -337,7 +280,7 @@ def handle_client(sock):
 
                     safe_send(
                         sock,
-                        f"[CALC] {a} {operator} {b} = {result}\n"
+                        f"[CALC] {a} {op} {b} = {result}\n"
                     )
 
                 except ValueError:
@@ -345,7 +288,47 @@ def handle_client(sock):
 
                 continue
 
-            # ---- BLOCK MUTED USER ----
+            # ---- MUTE / UNMUTE ----
+            if msg.startswith("/mute"):
+                if username != admin_username:
+                    safe_send(sock, "[ERROR] Admin only.\n")
+                    continue
+
+                parts = msg.split()
+                if len(parts) not in (2, 3):
+                    continue
+
+                target = parts[1]
+                if target == admin_username or target not in clients:
+                    continue
+
+                if len(parts) == 2:
+                    muted_users[target] = None
+                    broadcast(f"[{now()}] {target} was muted permanently.\n")
+                else:
+                    try:
+                        seconds = int(parts[2])
+                        muted_users[target] = time.time() + seconds
+                        broadcast(
+                            f"[{now()}] {target} was muted for {seconds} seconds.\n"
+                        )
+                    except:
+                        pass
+                continue
+
+            if msg.startswith("/unmute"):
+                if username != admin_username:
+                    continue
+
+                parts = msg.split()
+                if len(parts) != 2:
+                    continue
+
+                muted_users.pop(parts[1], None)
+                broadcast(f"[{now()}] {parts[1]} was unmuted.\n")
+                continue
+
+            # ---- BLOCK MUTED USERS ----
             if is_muted(username):
                 safe_send(sock, "You are muted.\n")
                 continue
@@ -353,13 +336,11 @@ def handle_client(sock):
             # ---- NORMAL MESSAGE ----
             broadcast(f"[{now()}] {username}: {msg}\n")
 
-    except Exception as e:
-        print("ERROR:", e)
     finally:
         with lock:
             if username in clients:
                 cleanup_user(username)
-        broadcast(f" {username} disconnected.\n")
+        broadcast(f"[{now()}] {username} disconnected.\n")
 
 
 def start_server():
