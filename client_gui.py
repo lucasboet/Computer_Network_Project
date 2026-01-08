@@ -4,26 +4,25 @@ import socket
 import threading
 import time
 
-# ================= CONFIG & COLORS =================
 HOST = "127.0.0.1"
 PORT = 9090
 BUFFER = 1024
 
-# עיצוב Dark Mode מלא
+# עיצוב
 COLOR_BG = "#36393f"
 COLOR_SIDEBAR = "#2f3136"
 COLOR_TEXT = "#dcddde"
 COLOR_ACCENT = "#5865F2"
-COLOR_ACCENT_HOVER = "#4752c4"
 COLOR_INPUT_BG = "#40444b"
 COLOR_ERROR = "#ed4245"
 COLOR_SUCCESS = "#3ba55c"
 COLOR_GOLD = "#f59e0b"
+COLOR_CYAN = "#0ea5e9"
+COLOR_PURPLE = "#8b5cf6"
 
 FONT_MAIN = ("Segoe UI", 11)
 FONT_BOLD = ("Segoe UI", 11, "bold")
 
-# יצירת ה-Root מראש והסתרתו (מונע קריסות)
 root = tk.Tk()
 root.withdraw()
 root.title("Chat Room")
@@ -36,16 +35,14 @@ last_ping = None
 nickname = None
 
 
-# ================= CUSTOM DIALOGS =================
-def ask_custom_input(title, prompt):
-    """ חלונית קלט מעוצבת שחורה במקום החלונית הלבנה הישנה """
+# ================= HELPER FUNCTIONS =================
+def ask_custom_input(title, prompt, is_retry=False):
     dialog = tk.Toplevel(root)
     dialog.title(title)
     dialog.configure(bg=COLOR_BG)
     dialog.resizable(False, False)
 
-    # מרכוז החלונית
-    w, h = 400, 220
+    w, h = 400, 250
     sw = root.winfo_screenwidth()
     sh = root.winfo_screenheight()
     x = (sw - w) // 2
@@ -53,14 +50,14 @@ def ask_custom_input(title, prompt):
     dialog.geometry(f"{w}x{h}+{x}+{y}")
 
     result = {"text": None}
+    tk.Label(dialog, text=title, font=("Segoe UI", 16, "bold"), bg=COLOR_BG, fg="white").pack(pady=(20, 10))
+    if is_retry:
+        tk.Label(dialog, text="Username taken! Try another:", font=FONT_BOLD, bg=COLOR_BG, fg=COLOR_ERROR).pack(pady=5)
+    else:
+        tk.Label(dialog, text=prompt, font=FONT_MAIN, bg=COLOR_BG, fg="#b9bbbe").pack(pady=5)
 
-    tk.Label(dialog, text=title, font=("Segoe UI", 16, "bold"), bg=COLOR_BG, fg="white").pack(pady=(25, 10))
-    tk.Label(dialog, text=prompt, font=FONT_MAIN, bg=COLOR_BG, fg="#b9bbbe").pack(pady=5)
-
-    entry = tk.Entry(
-        dialog, font=("Segoe UI", 14), bg=COLOR_INPUT_BG, fg="white",
-        insertbackground="white", relief=tk.FLAT, justify="center"
-    )
+    entry = tk.Entry(dialog, font=("Segoe UI", 14), bg=COLOR_INPUT_BG, fg="white", insertbackground="white",
+                     relief=tk.FLAT, justify="center")
     entry.pack(pady=10, padx=40, fill=tk.X, ipady=5)
     entry.focus()
 
@@ -71,45 +68,50 @@ def ask_custom_input(title, prompt):
             dialog.destroy()
 
     entry.bind("<Return>", on_submit)
-
-    btn = tk.Button(
-        dialog, text="Confirm", command=on_submit,
-        bg=COLOR_ACCENT, fg="white", font=FONT_BOLD, relief=tk.FLAT,
-        activebackground=COLOR_ACCENT_HOVER, activeforeground="white"
-    )
-    btn.pack(pady=15, ipadx=20, ipady=5)
-
+    tk.Button(dialog, text="Confirm", command=on_submit, bg=COLOR_ACCENT, fg="white", font=FONT_BOLD,
+              relief=tk.FLAT).pack(pady=15, ipadx=20, ipady=5)
     dialog.grab_set()
     root.wait_window(dialog)
     return result["text"]
 
 
-# ================= LOGIN PROCESS =================
-# 1. פתיחת החלונית המעוצבת לבחירת שם
-nickname = ask_custom_input("Welcome", "Choose your display name:")
+# ================= LOGIN =================
+def perform_login():
+    global sock, nickname
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((HOST, PORT))
+    except:
+        messagebox.showerror("Error", "Server is offline.")
+        root.destroy()
+        exit()
 
-if not nickname:
-    root.destroy()
-    exit()
+    retry = False
+    while True:
+        name_prompt = ask_custom_input("Welcome", "Choose Nickname:", is_retry=retry)
+        if not name_prompt:
+            sock.close()
+            root.destroy()
+            exit()
 
-# 2. ניסיון התחברות
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(3)  # טיימאאוט קצר למקרה שהשרת כבוי
-    sock.connect((HOST, PORT))
-    sock.settimeout(None)
-except Exception as e:
-    messagebox.showerror("Connection Error",
-                         f"Cannot connect to server.\nMake sure 'server.py' is running!\n\nError: {e}")
-    root.destroy()
-    exit()
+        try:
+            sock.sendall(name_prompt.encode())
+            response = sock.recv(BUFFER).decode()
+            if "TAKEN" in response:
+                retry = True
+            else:
+                nickname = name_prompt
+                break
+        except:
+            break
 
-# 3. הצגת החלון הראשי
+
+perform_login()
 root.deiconify()
 root.title(f"Chat Room • {nickname}")
 
 
-# ================= UI BUILDER =================
+# ================= UI & LOGIC =================
 def on_closing():
     global running
     running = False
@@ -136,88 +138,108 @@ def send(cmd):
             pass
 
 
-# --- Main Layout ---
+def do_ping():
+    global last_ping
+    last_ping = time.time()  # מתחיל מדידה
+    send("/ping")
+
+
+# --- Layout ---
 main_container = tk.Frame(root, bg=COLOR_BG)
 main_container.pack(fill=tk.BOTH, expand=True)
 
-# --- Sidebar ---
-sidebar = tk.Frame(main_container, bg=COLOR_SIDEBAR, width=280)
+sidebar = tk.Frame(main_container, bg=COLOR_SIDEBAR, width=300)
 sidebar.pack(side=tk.RIGHT, fill=tk.Y)
 sidebar.pack_propagate(False)
 
+# Members List
 tk.Label(sidebar, text="MEMBERS", bg=COLOR_SIDEBAR, fg="#8e9297", font=("Segoe UI", 9, "bold")).pack(anchor="w",
                                                                                                      padx=15,
-                                                                                                     pady=(20, 10))
-users_list = tk.Listbox(
-    sidebar, bg=COLOR_SIDEBAR, fg="#96989d", font=FONT_MAIN,
-    bd=0, highlightthickness=0, selectbackground=COLOR_INPUT_BG, selectforeground="white",
-    activestyle="none", height=15
-)
+                                                                                                     pady=(15, 5))
+users_list = tk.Listbox(sidebar, bg=COLOR_SIDEBAR, fg="#96989d", font=FONT_MAIN, bd=0, highlightthickness=0,
+                        selectbackground=COLOR_INPUT_BG, selectforeground="white", height=8)
 users_list.pack(fill=tk.X, padx=10)
 
 
 def get_target():
     sel = users_list.curselection()
     if not sel:
-        messagebox.showinfo("Select User", "Please select a user from the list first.")
+        messagebox.showinfo("Info", "Select a user first.")
         return None
-    return users_list.get(sel[0]).split(" ")[0]
+    val = users_list.get(sel[0])
+    # תיקון קריטי: מוריד את ה-(Admin) אם קיים, אבל שומר על רווחים בשם
+    if val.endswith(" (Admin)"):
+        return val[:-8]
+    return val
 
 
-# --- Buttons ---
+# Private Message
+tk.Label(sidebar, text="PRIVATE MESSAGE", bg=COLOR_SIDEBAR, fg="#8e9297", font=("Segoe UI", 9, "bold")).pack(anchor="w",
+                                                                                                             padx=15,
+                                                                                                             pady=(15,
+                                                                                                                   5))
+pm_frame = tk.Frame(sidebar, bg=COLOR_SIDEBAR)
+pm_frame.pack(fill=tk.X, padx=10)
+pm_entry = tk.Entry(pm_frame, bg=COLOR_INPUT_BG, fg="white", font=("Segoe UI", 10), relief=tk.FLAT)
+pm_entry.pack(fill=tk.X, pady=5, ipady=3)
+
+
+def send_pm(event=None):
+    target = get_target()
+    msg = pm_entry.get().strip()
+    if target and msg:
+        send(f"@{target} {msg}")
+        pm_entry.delete(0, tk.END)
+
+
+pm_entry.bind("<Return>", send_pm)
+tk.Button(pm_frame, text="Send PM", command=send_pm, bg=COLOR_GOLD, fg="white", font=FONT_BOLD, relief=tk.FLAT).pack(
+    fill=tk.X)
+
+# Actions
 tk.Label(sidebar, text="ACTIONS", bg=COLOR_SIDEBAR, fg="#8e9297", font=("Segoe UI", 9, "bold")).pack(anchor="w",
                                                                                                      padx=15,
-                                                                                                     pady=(20, 5))
-btn_frame = tk.Frame(sidebar, bg=COLOR_SIDEBAR)
+                                                                                                     pady=(15, 5))
+btn_frame = tk.Frame(sidebar, bg=COLOR_SIDEBAR);
 btn_frame.pack(fill=tk.X, padx=10)
 
 
-def styled_btn(parent, text, cmd, color=COLOR_ACCENT):
-    tk.Button(
-        parent, text=text, command=cmd,
-        bg=color, fg="white", activebackground=color, activeforeground="white",
-        font=("Segoe UI", 10, "bold"), relief=tk.FLAT, bd=0, cursor="hand2"
-    ).pack(fill=tk.X, pady=3, ipady=3)
-
-
-def do_rename():
-    # משתמשים באותה חלונית מעוצבת גם לשינוי שם!
-    new = ask_custom_input("Change Name", "Enter new nickname:")
-    if new: send(f"/rename {new}")
+def styled_btn(parent, text, cmd, color):
+    tk.Button(parent, text=text, command=cmd, bg=color, fg="white", font=("Segoe UI", 9, "bold"), relief=tk.FLAT).pack(
+        fill=tk.X, pady=2)
 
 
 def open_calc():
     cw = tk.Toplevel(root)
-    cw.title("Calc")
-    cw.geometry("300x250")
+    cw.title("Calculator")
     cw.configure(bg=COLOR_BG)
-    tk.Label(cw, text="Calculator", font=("Segoe UI", 14, "bold"), bg=COLOR_BG, fg="white").pack(pady=15)
-    f = tk.Frame(cw, bg=COLOR_BG);
-    f.pack()
-    e1 = tk.Entry(f, width=8, bg=COLOR_INPUT_BG, fg="white", font=FONT_MAIN, relief=tk.FLAT, justify="center");
-    e1.pack(side=tk.LEFT, padx=5, ipady=3)
-    e2 = tk.Entry(f, width=8, bg=COLOR_INPUT_BG, fg="white", font=FONT_MAIN, relief=tk.FLAT, justify="center");
-    e2.pack(side=tk.LEFT, padx=5, ipady=3)
+    cw.geometry("300x200")
 
-    def c(op):
-        try:
-            send(f"/calc {float(e1.get())} {op} {float(e2.get())}")
-        except:
-            pass
+    f = tk.Frame(cw, bg=COLOR_BG)
+    f.pack(pady=20)
 
-    ops = tk.Frame(cw, bg=COLOR_BG);
+    e1 = tk.Entry(f, width=8, bg=COLOR_INPUT_BG, fg="white", font=("Segoe UI", 16))
+    e1.pack(side=tk.LEFT, padx=10)
+    e2 = tk.Entry(f, width=8, bg=COLOR_INPUT_BG, fg="white", font=("Segoe UI", 16))
+    e2.pack(side=tk.LEFT, padx=10)
+    ops = tk.Frame(cw, bg=COLOR_BG)
     ops.pack(pady=20)
-    for o in "+-*/": tk.Button(ops, text=o, width=4, command=lambda x=o: c(x), bg=COLOR_SIDEBAR, fg="white",
-                               relief=tk.FLAT).pack(side=tk.LEFT, padx=3)
+
+    def c(op): send(f"/calc {e1.get()} {op} {e2.get()}")
+
+    for o in "+-*/": tk.Button(ops, text=o, width=5, height=2, command=lambda x=o: c(x),
+                  bg=COLOR_ACCENT, fg="white", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT, padx=5)
 
 
-styled_btn(btn_frame, "Rename", do_rename, COLOR_GOLD)
+styled_btn(btn_frame, "Rename", lambda: send(f"/rename {ask_custom_input('Rename', 'New Name:')}"), COLOR_GOLD)
 styled_btn(btn_frame, "Who Am I", lambda: send("/whoami"), "#3b82f6")
-styled_btn(btn_frame, "Ping Server", lambda: (send("/ping"), globals().update(last_ping=time.time())), "#10b981")
-styled_btn(btn_frame, "Calculator", open_calc, "#6366f1")
+styled_btn(btn_frame, "Ping Server", do_ping, "#10b981")  # תיקון: משתמש ב-do_ping
+styled_btn(btn_frame, "Uptime", lambda: send("/uptime"), COLOR_CYAN)
+styled_btn(btn_frame, "Calculator", open_calc, COLOR_PURPLE)
 
+# Admin
 tk.Label(sidebar, text="ADMIN", bg=COLOR_SIDEBAR, fg="#8e9297", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=15,
-                                                                                                   pady=(20, 5))
+                                                                                                   pady=(15, 5))
 admin_box = tk.Frame(sidebar, bg=COLOR_SIDEBAR);
 admin_box.pack(fill=tk.X, padx=10)
 styled_btn(admin_box, "Check Admin", lambda: send("/admin"), COLOR_SIDEBAR)
@@ -225,22 +247,21 @@ styled_btn(admin_box, "Mute User", lambda: get_target() and send(f"/mute {get_ta
 styled_btn(admin_box, "Unmute User", lambda: get_target() and send(f"/unmute {get_target()}"), COLOR_SUCCESS)
 styled_btn(admin_box, "Disconnect", on_closing, "#202225")
 
-# --- Chat Area ---
+# Chat
 chat_layout = tk.Frame(main_container, bg=COLOR_BG)
 chat_layout.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=20)
-chat = tk.Text(chat_layout, bg=COLOR_BG, fg=COLOR_TEXT, font=("Segoe UI", 12), wrap=tk.WORD, bd=0, highlightthickness=0,
-               state=tk.DISABLED, padx=10, pady=10)
+chat = tk.Text(chat_layout, bg=COLOR_BG, fg=COLOR_TEXT, font=("Segoe UI", 12), wrap=tk.WORD, bd=0, state=tk.DISABLED)
 chat.pack(fill=tk.BOTH, expand=True)
+
 chat.tag_config("server", foreground=COLOR_ACCENT, font=FONT_BOLD)
 chat.tag_config("error", foreground=COLOR_ERROR)
 chat.tag_config("pm", foreground=COLOR_GOLD, background="#33302a")
-chat.tag_config("admin", foreground=COLOR_SUCCESS)
+chat.tag_config("calc", foreground="#22d3ee", font=FONT_BOLD)
 
 input_frame = tk.Frame(chat_layout, bg=COLOR_INPUT_BG, height=50)
 input_frame.pack(fill=tk.X, pady=(15, 0));
 input_frame.pack_propagate(False)
-msg_entry = tk.Entry(input_frame, bg=COLOR_INPUT_BG, fg="white", font=FONT_MAIN, bd=0, highlightthickness=0,
-                     insertbackground="white")
+msg_entry = tk.Entry(input_frame, bg=COLOR_INPUT_BG, fg="white", font=FONT_MAIN, bd=0, insertbackground="white")
 msg_entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=15);
 msg_entry.focus()
 
@@ -251,17 +272,15 @@ def send_msg(e=None):
 
 
 msg_entry.bind("<Return>", send_msg)
-tk.Button(input_frame, text="SEND", command=send_msg, bg=COLOR_ACCENT, fg="white", font=("Segoe UI", 10, "bold"), bd=0,
-          relief=tk.FLAT).pack(side=tk.RIGHT, fill=tk.Y, ipadx=20)
+tk.Button(input_frame, text="SEND", command=send_msg, bg=COLOR_ACCENT, fg="white", font=FONT_BOLD, relief=tk.FLAT).pack(
+    side=tk.RIGHT, fill=tk.Y, ipadx=20)
 
 
-# ================= NETWORK LOGIC =================
+# Receiver
 def receive_loop():
     global last_ping, running
     time.sleep(0.1);
-    send(nickname);
-    time.sleep(0.1);
-    send("/users")  # Login Handshake
+    send("/users")
     buffer = ""
     while running:
         try:
@@ -275,7 +294,7 @@ def receive_loop():
             break
     if running:
         chat.config(state=tk.NORMAL)
-        chat.insert(tk.END, "\n[SYSTEM] Disconnected from server.\n", "error")
+        chat.insert(tk.END, "\n[SYSTEM] Disconnected.\n", "error")
         chat.config(state=tk.DISABLED)
 
 
@@ -283,16 +302,23 @@ def process_line(msg):
     global last_ping
     if not msg: return
     tag = None
-    if msg == "Pong" and last_ping:
-        msg = f"Pong! 🏓 ({int((time.time() - last_ping) * 1000)} ms)";
-        tag = "server";
-        last_ping = None
-    elif "[PM from" in msg:
+
+    # --- תיקון ל-Ping ---
+    if msg == "Pong":
+        if last_ping:
+            rtt = int((time.time() - last_ping) * 1000)
+            msg = f"Pong! 🏓 ({rtt} ms)"
+            last_ping = None
+        tag = "server"
+
+    elif "[PM" in msg:
         tag = "pm"
     elif "[ERROR]" in msg:
         tag = "error"
-    elif "administrator" in msg.lower():
-        tag = "admin"
+    elif "[CALC]" in msg:
+        tag = "calc"
+    elif "Uptime" in msg:
+        tag = "server"
     elif "Welcome" in msg:
         tag = "server"
 
@@ -301,10 +327,7 @@ def process_line(msg):
     elif msg.startswith("- "):
         users_list.insert(tk.END, msg[2:]); return
 
-    if "joined the chat" in msg:
-        u = msg.split("] ")[1].split(" ")[0]
-        if u not in users_list.get(0, tk.END): users_list.insert(tk.END, u)
-    elif "disconnected" in msg or "changed name to" in msg:
+    if "joined" in msg or "disconnected" in msg or "changed name" in msg:
         send("/users")
 
     chat.config(state=tk.NORMAL)
