@@ -1,0 +1,11 @@
+msg_id,app_protocol,src_app,dst_app,message,timestamp
+1,HTTP,client,server,GET /index.html HTTP/1.1,0.010
+2,HTTP,server,client,HTTP/1.1 200 OK,0.035
+3,HTTP,client,server,GET /styles.css HTTP/1.1,0.050
+4,HTTP,server,client,HTTP/1.1 200 OK,0.075
+5,HTTP,client,server,GET /missing.png HTTP/1.1,0.090
+6,HTTP,server,client,HTTP/1.1 404 Not Found,0.120
+7,HTTP,client,server,HEAD /index.html HTTP/1.1,0.140
+8,HTTP,server,client,HTTP/1.1 200 OK,0.160
+9,HTTP,client,server,POST /login HTTP/1.1,0.180
+10,HTTP,server,client,HTTP/1.1 200 OK,0.220
