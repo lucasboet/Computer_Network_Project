@@ -34,8 +34,8 @@ A Chat Application built with TCP Sockets that allows multiple clients to commun
 
 1. **Clone the repository and install dependencies:**
    ```bash
-   git clone <your-repository-url>
-   cd <repository-folder>
+   git clone (https://github.com/lucasboet/Computer_Network_Project)
+   cd Computer_Network_Project
    pip install -r requirements.txt
    ```
 
