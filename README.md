@@ -57,6 +57,6 @@ python client_gui.py
 Enter a unique username in the login window and click Connect.   
 
 
-##👥 Authors:
+## 👥 Authors:
 - Lucas Boet   
 - Maor Cohen   
