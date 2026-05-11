@@ -42,7 +42,8 @@ A Chat Application built with TCP Sockets that allows multiple clients to commun
 **2. Running Part 1 (Encapsulation):**
 Open ComputerNetworkProject.ipynb in your preferred Jupyter environment and run the cells sequentially to generate the simulated traffic.   
 
-**3. Running Part 2 (Chat Application):**Start the Server: Open a terminal and run the server script. 
+**3. Running Part 2 (Chat Application):**
+Start the Server: Open a terminal and run the server script. 
 
 ```bash
 python server.py
